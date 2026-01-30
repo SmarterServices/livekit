@@ -50,6 +50,45 @@ redis:
   # And it will use the password key above as cluster password
   # And the db key will not be used due to cluster mode not support it.
 
+# Agent configuration
+# agents:
+#   # Agent namespaces to use for dispatching
+#   namespaces:
+#     - default
+#   # Agent names to use for dispatching
+#   names:
+#     - agent-1
+
+# Egress Gateway configuration
+# Allows egress services to run independently with separate Redis
+# and handle recording/streaming for remote LiveKit servers
+egress_gateway:
+  enabled: false
+  # Gateway's own Redis for egress state management
+  redis:
+    address: gateway-redis.host:6379
+    # password: gateway_redis_password
+    # tls:
+    #   enabled: true
+  # 32-byte master encryption key for encrypting stored credentials
+  # Generate with: openssl rand -base64 32
+  # master_encryption_key: "your-32-byte-base64-encoded-key-here=="
+  # Static remote server configurations (optional)
+  # These are checked first before looking in Redis
+  # remote_servers:
+  #   prod-server-1:
+  #     host: "https://livekit.example.com"
+  #     api_key: "APIxxxxxx"
+  #     api_secret: "secretxxxxxx"
+  #   staging-server:
+  #     host: "https://staging.livekit.example.com"
+  #     api_key: "APIyyyyyy"
+  #     api_secret: "secretyyyyyy"
+  # Cache TTL for remote room validation (default: 60s)
+  # validation_cache_ttl: 60s
+  # Remote validation timeout (default: 2s)
+  # validation_timeout: 2s
+
 # WebRTC configuration
 rtc:
   # UDP ports to use for client traffic.
