@@ -23,6 +23,7 @@ import (
 
 	"github.com/twitchtv/twirp"
 
+	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/egress"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
@@ -304,9 +305,24 @@ func (s *EgressService) startGatewayEgress(ctx context.Context, egressReq *rpc.S
 		egressReq.EgressId = guid.New(utils.EgressPrefix)
 	}
 
-	// TODO: Generate token using remote server credentials
-	// This will be needed for egress worker to connect to remote server
-	_ = serverInfo // Will be used for token generation
+	// Generate token using remote server credentials for egress worker to connect to remote server
+	token := auth.NewAccessToken(serverInfo.GetAPIKey(), serverInfo.GetAPISecret())
+	token.SetIdentity(egressReq.EgressId).
+		AddGrant(&auth.VideoGrant{
+			RoomJoin: true,
+			Room:     roomName,
+			Hidden:   true,
+			Recorder: true,
+		})
+	
+	jwt, err := token.ToJWT()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate token for remote server: %w", err)
+	}
+	
+	// Set the token in the egress request so worker can connect to remote server
+	egressReq.Token = jwt
+	egressReq.WsUrl = serverInfo.GetHost()
 
 	// Start egress
 	info, err := s.client.StartEgress(ctx, "", egressReq)
