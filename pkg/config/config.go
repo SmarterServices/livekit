@@ -88,6 +88,8 @@ type Config struct {
 	NodeStats NodeStatsConfig `yaml:"node_stats,omitempty"`
 
 	EnableDataTracks bool `yaml:"enable_data_tracks,omitempty"`
+
+	EgressGateway EgressGatewayConfig `yaml:"egress_gateway,omitempty"`
 }
 
 type RTCConfig struct {
@@ -298,6 +300,33 @@ type IngressConfig struct {
 }
 
 type SIPConfig struct{}
+
+type EgressGatewayConfig struct {
+	Enabled bool `yaml:"enabled,omitempty"`
+
+	// Gateway's own Redis for egress state management
+	Redis redisLiveKit.RedisConfig `yaml:"redis,omitempty"`
+
+	// Master encryption key for encrypting stored credentials (32 bytes for AES-256)
+	// Used to encrypt remote server credentials before storing in Redis
+	MasterEncryptionKey string `yaml:"master_encryption_key,omitempty"`
+
+	// Static remote server configurations (optional)
+	// These are checked first before looking in Redis
+	RemoteServers map[string]*RemoteServerConfig `yaml:"remote_servers,omitempty"`
+
+	// Cache TTL for remote room validation results (default: 60s)
+	ValidationCacheTTL time.Duration `yaml:"validation_cache_ttl,omitempty"`
+
+	// Remote validation timeout (default: 2s)
+	ValidationTimeout time.Duration `yaml:"validation_timeout,omitempty"`
+}
+
+type RemoteServerConfig struct {
+	Host      string `yaml:"host,omitempty"`
+	APIKey    string `yaml:"api_key,omitempty"`
+	APISecret string `yaml:"api_secret,omitempty"`
+}
 
 type APIConfig struct {
 	// amount of time to wait for API to execute, default 2s

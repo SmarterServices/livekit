@@ -113,3 +113,26 @@ type AgentStore interface {
 	StoreAgentJob(ctx context.Context, job *livekit.Job) error
 	DeleteAgentJob(ctx context.Context, job *livekit.Job) error
 }
+
+//counterfeiter:generate . ServerRegistry
+type ServerRegistry interface {
+	GetServer(ctx context.Context, serverID string) (ServerInfo, error)
+	ListServers(ctx context.Context) ([]string, error)
+}
+
+//counterfeiter:generate . RemoteValidator
+type RemoteValidator interface {
+	ValidateRoom(ctx context.Context, serverID, roomName string) (RoomInfo, error)
+}
+
+type ServerInfo interface {
+	GetServerID() string
+	GetHost() string
+	GetAPIKey() string
+	GetAPISecret() string
+}
+
+type RoomInfo interface {
+	GetRoomSID() string
+	GetRoomName() string
+}

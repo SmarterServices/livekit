@@ -35,10 +35,13 @@ import (
 )
 
 type EgressService struct {
-	launcher    rtc.EgressLauncher
-	client      rpc.EgressClient
-	io          IOClient
-	roomService livekit.RoomService
+	launcher         rtc.EgressLauncher
+	client           rpc.EgressClient
+	io               IOClient
+	roomService      livekit.RoomService
+	gatewayMode      bool
+	serverRegistry   ServerRegistry
+	remoteValidator  RemoteValidator
 }
 
 type egressLauncher struct {
@@ -52,12 +55,18 @@ func NewEgressService(
 	launcher rtc.EgressLauncher,
 	io IOClient,
 	rs livekit.RoomService,
+	gatewayMode bool,
+	serverRegistry ServerRegistry,
+	remoteValidator RemoteValidator,
 ) *EgressService {
 	return &EgressService{
-		client:      client,
-		io:          io,
-		roomService: rs,
-		launcher:    launcher,
+		client:          client,
+		io:              io,
+		roomService:     rs,
+		launcher:        launcher,
+		gatewayMode:     gatewayMode,
+		serverRegistry:  serverRegistry,
+		remoteValidator: remoteValidator,
 	}
 }
 
@@ -81,6 +90,15 @@ func (s *EgressService) StartRoomCompositeEgress(ctx context.Context, req *livek
 	defer func() {
 		AppendLogFields(ctx, fields...)
 	}()
+	
+	// Check if gateway mode with media_server_id
+	if s.gatewayMode && req.Attributes != nil {
+		if mediaServerID, ok := req.Attributes["media_server_id"]; ok && mediaServerID != "" {
+			fields = append(fields, "mediaServerID", mediaServerID)
+			return s.startGatewayEgress(ctx, req, mediaServerID)
+		}
+	}
+	
 	ei, err := s.startEgress(ctx, &rpc.StartEgressRequest{
 		Request: &rpc.StartEgressRequest_RoomComposite{
 			RoomComposite: req,
@@ -184,6 +202,58 @@ func (s *EgressService) startEgress(ctx context.Context, req *rpc.StartEgressReq
 	}
 
 	return s.launcher.StartEgress(ctx, req)
+}
+
+func (s *EgressService) startGatewayEgress(ctx context.Context, req *livekit.RoomCompositeEgressRequest, mediaServerID string) (*livekit.EgressInfo, error) {
+	if err := EnsureRecordPermission(ctx); err != nil {
+		return nil, twirpAuthError(err)
+	}
+	
+	if s.remoteValidator == nil || s.serverRegistry == nil {
+		return nil, errors.New("gateway not properly configured")
+	}
+
+	// Validate room on remote media server
+	roomInfo, err := s.remoteValidator.ValidateRoom(ctx, mediaServerID, req.RoomName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate room on media server: %w", err)
+	}
+
+	// Get server credentials for token generation
+	serverInfo, err := s.serverRegistry.GetServer(ctx, mediaServerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get media server info: %w", err)
+	}
+
+	// Create egress request with room SID from remote server
+	egressReq := &rpc.StartEgressRequest{
+		Request: &rpc.StartEgressRequest_RoomComposite{
+			RoomComposite: req,
+		},
+		RoomId: roomInfo.GetRoomSID(),
+	}
+
+	// Generate egress ID
+	if egressReq.EgressId == "" {
+		egressReq.EgressId = guid.New(utils.EgressPrefix)
+	}
+
+	// TODO: Generate token using remote server credentials
+	// This will be needed for egress worker to connect to remote server
+	_ = serverInfo // Will be used for token generation
+
+	// Start egress
+	info, err := s.client.StartEgress(ctx, "", egressReq)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = s.io.CreateEgress(ctx, info)
+	if err != nil {
+		logger.Errorw("failed to create egress", err)
+	}
+
+	return info, nil
 }
 
 func (s *egressLauncher) StartEgress(ctx context.Context, req *rpc.StartEgressRequest) (*livekit.EgressInfo, error) {
