@@ -158,16 +158,7 @@ func NewLivekitServer(conf *config.Config,
 	}
 
 	if conf.Prometheus.Port > 0 {
-		promHandler := promhttp.Handler()
-		if conf.Prometheus.Username != "" && conf.Prometheus.Password != "" {
-			protectedHandler := negroni.New()
-			protectedHandler.Use(negroni.HandlerFunc(GenBasicAuthMiddleware(conf.Prometheus.Username, conf.Prometheus.Password)))
-			protectedHandler.UseHandler(promHandler)
-			promHandler = protectedHandler
-		}
-		s.promServer = &http.Server{
-			Handler: promHandler,
-		}
+		s.promServer = createPrometheusServer(conf)
 	}
 
 	if err = router.RemoveDeadNodes(); err != nil {
@@ -195,17 +186,20 @@ func (s *LivekitServer) Start() error {
 	}
 	s.doneChan = make(chan struct{})
 
-	if err := s.router.RegisterNode(); err != nil {
-		return err
-	}
-	defer func() {
-		if err := s.router.UnregisterNode(); err != nil {
-			logger.Errorw("could not unregister node", err)
+	// Skip router operations in gateway-only mode
+	if s.router != nil {
+		if err := s.router.RegisterNode(); err != nil {
+			return err
 		}
-	}()
+		defer func() {
+			if err := s.router.UnregisterNode(); err != nil {
+				logger.Errorw("could not unregister node", err)
+			}
+		}()
 
-	if err := s.router.Start(); err != nil {
-		return err
+		if err := s.router.Start(); err != nil {
+			return err
+		}
 	}
 
 	if err := s.ioService.Start(); err != nil {
@@ -306,8 +300,17 @@ func (s *LivekitServer) Start() error {
 		_ = s.turnServer.Close()
 	}
 
-	s.roomManager.Stop()
-	s.signalServer.Stop()
+	// Skip router/room/signal operations in gateway-only mode
+	if s.router != nil {
+		s.router.Drain()
+		s.router.Stop()
+	}
+	if s.roomManager != nil {
+		s.roomManager.Stop()
+	}
+	if s.signalServer != nil {
+		s.signalServer.Stop()
+	}
 	s.ioService.Stop()
 
 	close(s.closedChan)
@@ -315,7 +318,17 @@ func (s *LivekitServer) Start() error {
 }
 
 func (s *LivekitServer) Stop(force bool) {
-	// wait for all participants to exit
+	// Gateway-only mode: skip router and room manager operations
+	if s.router == nil {
+		if !s.running.Swap(false) {
+			return
+		}
+		close(s.doneChan)
+		<-s.closedChan
+		return
+	}
+	
+	// Normal mode: wait for all participants to exit
 	s.router.Drain()
 	partTicker := time.NewTicker(5 * time.Second)
 	waitingForParticipants := !force && s.roomManager.HasParticipants()
@@ -346,6 +359,12 @@ func (s *LivekitServer) debugGoroutines(w http.ResponseWriter, _ *http.Request) 
 }
 
 func (s *LivekitServer) debugInfo(w http.ResponseWriter, _ *http.Request) {
+	if s.roomManager == nil {
+		w.WriteHeader(400)
+		_, _ = w.Write([]byte("not available in gateway mode"))
+		return
+	}
+	
 	s.roomManager.lock.RLock()
 	info := make([]map[string]any, 0, len(s.roomManager.rooms))
 	for _, room := range s.roomManager.rooms {
@@ -387,6 +406,12 @@ func (s *LivekitServer) healthCheck(w http.ResponseWriter, _ *http.Request) {
 
 // worker to perform periodic tasks per node
 func (s *LivekitServer) backgroundWorker() {
+	// Skip in gateway-only mode (no room manager)
+	if s.roomManager == nil {
+		<-s.doneChan
+		return
+	}
+	
 	roomTicker := time.NewTicker(1 * time.Second)
 	defer roomTicker.Stop()
 	for {
@@ -406,4 +431,17 @@ func configureMiddlewares(handler http.Handler, middlewares ...negroni.Handler) 
 	}
 	n.UseHandler(handler)
 	return n
+}
+
+func createPrometheusServer(conf *config.Config) *http.Server {
+	promHandler := promhttp.Handler()
+	if conf.Prometheus.Username != "" && conf.Prometheus.Password != "" {
+		protectedHandler := negroni.New()
+		protectedHandler.Use(negroni.HandlerFunc(GenBasicAuthMiddleware(conf.Prometheus.Username, conf.Prometheus.Password)))
+		protectedHandler.UseHandler(promHandler)
+		promHandler = protectedHandler
+	}
+	return &http.Server{
+		Handler: promHandler,
+	}
 }

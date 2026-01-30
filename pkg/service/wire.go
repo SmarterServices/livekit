@@ -345,3 +345,10 @@ func createRemoteValidator(gatewayConf *config.EgressGatewayConfig, registry Ser
 func getGatewayMode(gatewayConf *config.EgressGatewayConfig) bool {
 	return gatewayConf.Enabled
 }
+
+func getEgressStore(rc redis.UniversalClient) EgressStore {
+	if rc != nil {
+		return NewRedisStore(rc)
+	}
+	return nil
+}
