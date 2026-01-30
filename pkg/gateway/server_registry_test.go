@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package test
+package gateway
 
 import (
 	"context"
@@ -24,10 +24,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/livekit/livekit-server/pkg/config"
-	"github.com/livekit/livekit-server/pkg/gateway"
 )
 
-func setupTestRegistry(t *testing.T) (*gateway.ServerRegistry, *miniredis.Miniredis, func()) {
+func setupTestRegistry(t *testing.T) (*ServerRegistry, *miniredis.Miniredis, func()) {
 	mr := miniredis.RunT(t)
 	rc := redis.NewUniversalClient(&redis.UniversalOptions{
 		Addrs: []string{mr.Addr()},
@@ -44,7 +43,7 @@ func setupTestRegistry(t *testing.T) (*gateway.ServerRegistry, *miniredis.Minire
 		},
 	}
 
-	registry, err := gateway.NewServerRegistry(rc, encryptionKey, staticServers)
+	registry, err := NewServerRegistry(rc, encryptionKey, staticServers)
 	require.NoError(t, err)
 
 	cleanup := func() {
@@ -62,7 +61,7 @@ func TestServerRegistry_RegisterAndGet(t *testing.T) {
 	ctx := context.Background()
 
 	// Register a server
-	info := &gateway.RemoteServerInfo{
+	info := &RemoteServerInfo{
 		ServerID:  "test-server",
 		Host:      "https://test.example.com",
 		APIKey:    "test-api-key",
@@ -119,7 +118,7 @@ func TestServerRegistry_ListServers(t *testing.T) {
 	ctx := context.Background()
 
 	// Register a dynamic server
-	info := &gateway.RemoteServerInfo{
+	info := &RemoteServerInfo{
 		ServerID:  "dynamic-server",
 		Host:      "https://dynamic.example.com",
 		APIKey:    "dynamic-key",
@@ -145,7 +144,7 @@ func TestServerRegistry_DeleteServer(t *testing.T) {
 	ctx := context.Background()
 
 	// Register a server
-	info := &gateway.RemoteServerInfo{
+	info := &RemoteServerInfo{
 		ServerID:  "delete-me",
 		Host:      "https://delete.example.com",
 		APIKey:    "delete-key",
@@ -184,7 +183,7 @@ func TestServerRegistry_EncryptionDecryption(t *testing.T) {
 	ctx := context.Background()
 
 	// Register with sensitive data
-	info := &gateway.RemoteServerInfo{
+	info := &RemoteServerInfo{
 		ServerID:  "encryption-test",
 		Host:      "https://test.example.com",
 		APIKey:    "super-secret-key-12345",
@@ -213,7 +212,7 @@ func TestServerRegistry_InvalidKeyLength(t *testing.T) {
 
 	// Try with wrong key length
 	shortKey := []byte("short")
-	_, err := gateway.NewServerRegistry(rc, shortKey, nil)
+	_, err := NewServerRegistry(rc, shortKey, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "must be 32 bytes")
 }
