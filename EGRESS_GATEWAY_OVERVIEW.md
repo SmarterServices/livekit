@@ -10,49 +10,51 @@ Think of it as a dedicated egress processing hub that can handle recording and s
 
 ## Why Use an Egress Gateway?
 
-### **Problem: Tight Coupling**
+### **Problem: Redis Coupling**
 
-In a standard LiveKit deployment:
-- Egress services run on the same infrastructure as your media servers
-- Each LiveKit server manages its own egress operations
-- Scaling egress requires scaling entire server instances
-- Egress state is tied to the server's Redis instance
+Currently, LiveKit egress requires **shared Redis access** with the media server's control plane:
 
-### **Solution: Dedicated Gateway**
+- **Cannot use LiveKit Cloud + self-hosted egress**: Egress must connect to the same Redis as the media server
+- **No hybrid deployments**: Can't use managed LiveKit Cloud for media while running your own egress infrastructure
+- **Control plane access required**: Self-hosted egress needs access to internal Redis, which isn't exposed in cloud deployments
+- **Security boundary**: Exposing control plane Redis to external egress workers creates security risks
 
-With the Egress Gateway:
-- **Decouple egress processing** from media servers
-- **Centralize egress operations** across multiple LiveKit servers
-- **Scale independently** - add egress capacity without adding media servers
-- **Simplify operations** - manage egress in one place
+**Note:** LiveKit components already scale independently - this specifically solves the Redis coupling problem.
+
+### **Solution: Egress Gateway**
+
+The gateway decouples egress from the media server's control plane:
+
+1. **Separate Redis**: Gateway uses its own Redis, completely independent from media server control plane
+2. **API-Only Communication**: Talks to remote media servers via public APIs only (no Redis access needed)
+3. **Hybrid Deployments**: ✅ Use LiveKit Cloud for media, self-host egress gateway
+4. **Secure Credential Storage**: Remote server credentials encrypted at rest (AES-256-GCM)
+5. **Multi-Server Support**: Single gateway orchestrates egress for multiple LiveKit servers
 
 ---
 
 ## Key Benefits
 
-### 🎯 **1. Independent Scaling**
-Scale your egress capacity independently from your media servers. Need more recording capacity? Just add more egress workers to the gateway - no need to provision additional media servers.
+### � **1. Hybrid Cloud Deployments**
+Use LiveKit Cloud for media servers while running your own egress infrastructure - previously impossible due to Redis coupling.
 
 ### 🔄 **2. Multi-Server Support**
 One gateway can handle egress for multiple LiveKit servers:
+- LiveKit Cloud + self-hosted servers
 - Production and staging environments
 - Multiple regional deployments
 - Different customer instances
 
-### 💰 **3. Cost Optimization**
-- Run egress-heavy workloads on cost-optimized instances
-- Keep media servers lean and focused on real-time processing
-- Reduce overall infrastructure costs
+### � **3. Security & Isolation**
+- No control plane Redis access required
+- Separate Redis instances for better security
+- API-only communication with media servers
+- Encrypted credential storage
 
 ### 🛠️ **4. Operational Simplicity**
 - Single point of management for all egress operations
 - Centralized monitoring and logging
-- Easier troubleshooting and debugging
-
-### 🔒 **5. Security & Isolation**
-- Isolate egress processing from media servers
-- Separate Redis instances for better security
-- Control which servers can use the gateway
+- Easier troubleshooting across multiple servers
 
 ---
 
