@@ -102,6 +102,35 @@ The Egress Gateway acts as a centralized egress orchestrator that can manage rec
 | ⑥ | Worker → Media Server | Join room | WebSocket connection with JWT auth |
 | ⑦ | Worker → Storage | Save output | Media stream → MP4/HLS/RTMP |
 
+## Gateway-Only Mode
+
+When `egress_gateway.enabled: true`, the LiveKit server runs in **gateway-only mode**, which disables all non-essential services to create a lightweight egress orchestrator.
+
+### Services Running in Gateway Mode ✅
+
+- **EgressService** - Egress orchestration and API
+- **IOInfoService** - Egress state management
+- **Gateway Redis** - Encrypted credential storage (separate from media servers)
+- **ServerRegistry** - Remote server credential management
+- **RemoteValidator** - Room validation with caching
+- **API Authentication** - Standard LiveKit auth
+- **Prometheus Metrics** - Optional monitoring
+
+### Services Disabled in Gateway Mode ❌
+
+- **RoomService** - No local room management
+- **RTCService** - No media processing
+- **SignalServer** - No WebRTC signaling
+- **RoomManager** - No room lifecycle management
+- **Router** - No node routing/discovery
+- **IngressService** - No ingress
+- **SIPService** - No SIP trunking
+- **WHIPService** - No WHIP
+- **AgentService** - No agent dispatch
+- **TURN Server** - No TURN relay
+
+**Result:** Gateway server uses ~90% less resources than a full LiveKit server.
+
 ## Quick Start
 
 The Egress Gateway allows you to run LiveKit egress services independently from your main media servers, enabling centralized recording/streaming across multiple LiveKit deployments.
