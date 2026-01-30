@@ -95,10 +95,21 @@ func (s *EgressService) StartRoomCompositeEgress(ctx context.Context, req *livek
 	if s.gatewayMode && req.Attributes != nil {
 		if mediaServerID, ok := req.Attributes["media_server_id"]; ok && mediaServerID != "" {
 			fields = append(fields, "mediaServerID", mediaServerID)
-			return s.startGatewayEgress(ctx, req, mediaServerID)
+			egressReq := &rpc.StartEgressRequest{
+				Request: &rpc.StartEgressRequest_RoomComposite{
+					RoomComposite: req,
+				},
+			}
+			ei, err := s.startGatewayEgress(ctx, egressReq, req.RoomName, mediaServerID)
+			if err != nil {
+				return nil, err
+			}
+			fields = append(fields, "egressID", ei.EgressId)
+			return ei, nil
 		}
 	}
 	
+	// Default: use normal mode (backward compatible)
 	ei, err := s.startEgress(ctx, &rpc.StartEgressRequest{
 		Request: &rpc.StartEgressRequest_RoomComposite{
 			RoomComposite: req,
@@ -140,6 +151,26 @@ func (s *EgressService) StartParticipantEgress(ctx context.Context, req *livekit
 	defer func() {
 		AppendLogFields(ctx, fields...)
 	}()
+	
+	// Check if gateway mode with media_server_id
+	if s.gatewayMode && req.Attributes != nil {
+		if mediaServerID, ok := req.Attributes["media_server_id"]; ok && mediaServerID != "" {
+			fields = append(fields, "mediaServerID", mediaServerID)
+			egressReq := &rpc.StartEgressRequest{
+				Request: &rpc.StartEgressRequest_Participant{
+					Participant: req,
+				},
+			}
+			ei, err := s.startGatewayEgress(ctx, egressReq, req.RoomName, mediaServerID)
+			if err != nil {
+				return nil, err
+			}
+			fields = append(fields, "egressID", ei.EgressId)
+			return ei, nil
+		}
+	}
+	
+	// Default: use normal mode (backward compatible)
 	ei, err := s.startEgress(ctx, &rpc.StartEgressRequest{
 		Request: &rpc.StartEgressRequest_Participant{
 			Participant: req,
@@ -162,6 +193,26 @@ func (s *EgressService) StartTrackCompositeEgress(ctx context.Context, req *live
 	defer func() {
 		AppendLogFields(ctx, fields...)
 	}()
+	
+	// Check if gateway mode with media_server_id
+	if s.gatewayMode && req.Attributes != nil {
+		if mediaServerID, ok := req.Attributes["media_server_id"]; ok && mediaServerID != "" {
+			fields = append(fields, "mediaServerID", mediaServerID)
+			egressReq := &rpc.StartEgressRequest{
+				Request: &rpc.StartEgressRequest_TrackComposite{
+					TrackComposite: req,
+				},
+			}
+			ei, err := s.startGatewayEgress(ctx, egressReq, req.RoomName, mediaServerID)
+			if err != nil {
+				return nil, err
+			}
+			fields = append(fields, "egressID", ei.EgressId)
+			return ei, nil
+		}
+	}
+	
+	// Default: use normal mode (backward compatible)
 	ei, err := s.startEgress(ctx, &rpc.StartEgressRequest{
 		Request: &rpc.StartEgressRequest_TrackComposite{
 			TrackComposite: req,
@@ -182,6 +233,26 @@ func (s *EgressService) StartTrackEgress(ctx context.Context, req *livekit.Track
 	defer func() {
 		AppendLogFields(ctx, fields...)
 	}()
+	
+	// Check if gateway mode with media_server_id
+	if s.gatewayMode && req.Attributes != nil {
+		if mediaServerID, ok := req.Attributes["media_server_id"]; ok && mediaServerID != "" {
+			fields = append(fields, "mediaServerID", mediaServerID)
+			egressReq := &rpc.StartEgressRequest{
+				Request: &rpc.StartEgressRequest_Track{
+					Track: req,
+				},
+			}
+			ei, err := s.startGatewayEgress(ctx, egressReq, req.RoomName, mediaServerID)
+			if err != nil {
+				return nil, err
+			}
+			fields = append(fields, "egressID", ei.EgressId)
+			return ei, nil
+		}
+	}
+	
+	// Default: use normal mode (backward compatible)
 	ei, err := s.startEgress(ctx, &rpc.StartEgressRequest{
 		Request: &rpc.StartEgressRequest_Track{
 			Track: req,
@@ -204,7 +275,7 @@ func (s *EgressService) startEgress(ctx context.Context, req *rpc.StartEgressReq
 	return s.launcher.StartEgress(ctx, req)
 }
 
-func (s *EgressService) startGatewayEgress(ctx context.Context, req *livekit.RoomCompositeEgressRequest, mediaServerID string) (*livekit.EgressInfo, error) {
+func (s *EgressService) startGatewayEgress(ctx context.Context, egressReq *rpc.StartEgressRequest, roomName, mediaServerID string) (*livekit.EgressInfo, error) {
 	if err := EnsureRecordPermission(ctx); err != nil {
 		return nil, twirpAuthError(err)
 	}
@@ -214,7 +285,7 @@ func (s *EgressService) startGatewayEgress(ctx context.Context, req *livekit.Roo
 	}
 
 	// Validate room on remote media server
-	roomInfo, err := s.remoteValidator.ValidateRoom(ctx, mediaServerID, req.RoomName)
+	roomInfo, err := s.remoteValidator.ValidateRoom(ctx, mediaServerID, roomName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate room on media server: %w", err)
 	}
@@ -225,13 +296,8 @@ func (s *EgressService) startGatewayEgress(ctx context.Context, req *livekit.Roo
 		return nil, fmt.Errorf("failed to get media server info: %w", err)
 	}
 
-	// Create egress request with room SID from remote server
-	egressReq := &rpc.StartEgressRequest{
-		Request: &rpc.StartEgressRequest_RoomComposite{
-			RoomComposite: req,
-		},
-		RoomId: roomInfo.GetRoomSID(),
-	}
+	// Set room SID from remote server
+	egressReq.RoomId = roomInfo.GetRoomSID()
 
 	// Generate egress ID
 	if egressReq.EgressId == "" {
