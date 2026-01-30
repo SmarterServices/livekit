@@ -463,6 +463,11 @@ var DefaultConfig = Config{
 	Metric:    metric.DefaultMetricConfig,
 	WebHook:   webhook.DefaultWebHookConfig,
 	NodeStats: DefaultNodeStatsConfig,
+	EgressGateway: EgressGatewayConfig{
+		Enabled:            false,
+		ValidationCacheTTL: 60 * time.Second,
+		ValidationTimeout:  2 * time.Second,
+	},
 }
 
 func NewConfig(confString string, strictMode bool, c *cli.Command, baseFlags []cli.Flag) (*Config, error) {

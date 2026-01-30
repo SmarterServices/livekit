@@ -20,6 +20,7 @@ package service
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/google/wire"
 	"github.com/pion/turn/v4"
@@ -39,6 +40,7 @@ import (
 
 	"github.com/livekit/livekit-server/pkg/agent"
 	"github.com/livekit/livekit-server/pkg/config"
+	"github.com/livekit/livekit-server/pkg/gateway"
 	"github.com/livekit/livekit-server/pkg/routing"
 	"github.com/livekit/livekit-server/pkg/sfu"
 	"github.com/livekit/livekit-server/pkg/telemetry"
@@ -68,6 +70,11 @@ func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*Live
 		rpc.NewIngressClient,
 		getEgressStore,
 		NewEgressLauncher,
+		getEgressGatewayConfig,
+		createGatewayRedisClient,
+		createServerRegistry,
+		createRemoteValidator,
+		getGatewayMode,
 		NewEgressService,
 		getIngressStore,
 		getIngressConfig,
@@ -277,4 +284,64 @@ func getNodeStatsConfig(config *config.Config) config.NodeStatsConfig {
 
 func getAgentConfig(config *config.Config) agent.Config {
 	return config.Agents
+}
+
+func getEgressGatewayConfig(config *config.Config) *config.EgressGatewayConfig {
+	return &config.EgressGateway
+}
+
+func createGatewayRedisClient(conf *config.Config) (redis.UniversalClient, error) {
+	if !conf.EgressGateway.Enabled || !conf.EgressGateway.Redis.IsConfigured() {
+		return nil, nil
+	}
+	return redisLiveKit.GetRedisClient(&conf.EgressGateway.Redis)
+}
+
+func createServerRegistry(gatewayConf *config.EgressGatewayConfig, rc redis.UniversalClient) (ServerRegistry, error) {
+	if !gatewayConf.Enabled {
+		return nil, nil
+	}
+	
+	if rc == nil {
+		return nil, errors.New("gateway Redis client is required for gateway mode")
+	}
+	
+	// Decode master encryption key
+	if gatewayConf.MasterEncryptionKey == "" {
+		return nil, errors.New("master_encryption_key is required for gateway mode")
+	}
+	
+	masterKey := []byte(gatewayConf.MasterEncryptionKey)
+	if len(masterKey) != 32 {
+		return nil, fmt.Errorf("master encryption key must be 32 bytes, got %d", len(masterKey))
+	}
+	
+	return gateway.NewServerRegistry(rc, masterKey, gatewayConf.RemoteServers)
+}
+
+func createRemoteValidator(gatewayConf *config.EgressGatewayConfig, registry ServerRegistry) (RemoteValidator, error) {
+	if !gatewayConf.Enabled || registry == nil {
+		return nil, nil
+	}
+	
+	cacheTTL := gatewayConf.ValidationCacheTTL
+	if cacheTTL == 0 {
+		cacheTTL = 60 * time.Second
+	}
+	
+	timeout := gatewayConf.ValidationTimeout
+	if timeout == 0 {
+		timeout = 2 * time.Second
+	}
+	
+	// Cast to concrete type to access NewRemoteValidator
+	if reg, ok := registry.(*gateway.ServerRegistry); ok {
+		return gateway.NewRemoteValidator(reg, cacheTTL, timeout), nil
+	}
+	
+	return nil, errors.New("invalid server registry type")
+}
+
+func getGatewayMode(gatewayConf *config.EgressGatewayConfig) bool {
+	return gatewayConf.Enabled
 }
