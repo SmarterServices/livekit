@@ -1,5 +1,107 @@
 # Egress Gateway Setup Guide
 
+## Architecture & Data Flow
+
+The Egress Gateway acts as a centralized egress orchestrator that can manage recording/streaming for multiple remote LiveKit media servers.
+
+### Visual Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           CLIENT APPLICATION                                │
+│                                                                             │
+│  const egressInfo = await egressClient.startRoomCompositeEgress({          │
+│    room_name: 'my-room',                                                   │
+│    // ... egress config                                                    │
+│  }, {                                                                      │
+│    headers: { 'media-server-id': 'production' }  ◄─── Specifies target    │
+│  });                                                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    │ ① Egress API Request
+                                    │    (with media-server-id header)
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          EGRESS GATEWAY                                     │
+│  ┌───────────────────────────────────────────────────────────────────┐    │
+│  │  ② Lookup Server Credentials                                      │    │
+│  │     - Check config file first (static servers)                    │    │
+│  │     - Fallback to Redis (dynamic servers)                         │    │
+│  │     - Decrypt credentials (AES-256-GCM)                           │    │
+│  └───────────────────────────────────────────────────────────────────┘    │
+│                                    │                                        │
+│  ┌───────────────────────────────────────────────────────────────────┐    │
+│  │  ③ Validate Room on Remote Server                                │    │
+│  │     - Call remote server's ListRooms API                          │    │
+│  │     - Check cache first (60s TTL)                                 │    │
+│  │     - Get room SID                                                │    │
+│  └───────────────────────────────────────────────────────────────────┘    │
+│                                    │                                        │
+│  ┌───────────────────────────────────────────────────────────────────┐    │
+│  │  ④ Generate Access Token                                          │    │
+│  │     - Use remote server's API key/secret                          │    │
+│  │     - Grant: RoomJoin, Hidden, Recorder                           │    │
+│  │     - Identity: egress_id                                         │    │
+│  └───────────────────────────────────────────────────────────────────┘    │
+│                                    │                                        │
+│  ┌───────────────────────────────────────────────────────────────────┐    │
+│  │  ⑤ Start Egress Worker                                            │    │
+│  │     - Pass token + remote server URL                              │    │
+│  │     - Worker connects to remote media server                      │    │
+│  └───────────────────────────────────────────────────────────────────┘    │
+│                                                                             │
+│  Gateway Redis: Stores encrypted credentials + egress state                │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    │ ⑥ Egress Worker Connects
+                                    │    (using generated token)
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      REMOTE LIVEKIT MEDIA SERVER                            │
+│                         (Production/Staging/etc)                            │
+│                                                                             │
+│  ┌─────────────────┐         ┌──────────────────┐                         │
+│  │  Active Room    │◄────────│  Egress Worker   │                         │
+│  │  "my-room"      │         │  (Hidden)        │                         │
+│  │                 │         │                  │                         │
+│  │  Participants:  │  Media  │  Recording/      │                         │
+│  │  - User A       │─────────►  Streaming       │                         │
+│  │  - User B       │  Stream │                  │                         │
+│  └─────────────────┘         └──────────────────┘                         │
+│                                       │                                     │
+│  Media Server Redis: Room state only  │                                    │
+└───────────────────────────────────────┼─────────────────────────────────────┘
+                                        │
+                                        │ ⑦ Output Stream/File
+                                        ▼
+                              ┌──────────────────┐
+                              │   S3 / Storage   │
+                              │   or RTMP URL    │
+                              └──────────────────┘
+```
+
+### Key Components
+
+1. **Client Application** - Initiates egress with `media-server-id` header
+2. **Egress Gateway** - Orchestrates egress across multiple media servers
+3. **Gateway Redis** - Stores encrypted credentials and egress state
+4. **Remote Media Server** - Hosts the actual room with participants
+5. **Media Server Redis** - Stores room state (separate from gateway)
+6. **Egress Worker** - Joins room as hidden participant, records/streams
+7. **Storage/Output** - Final destination (S3, RTMP, etc.)
+
+### Data Flow Steps
+
+| Step | Component | Action | Data |
+|------|-----------|--------|------|
+| ① | Client → Gateway | Start egress request | Room name, layout, output config, `media-server-id` header |
+| ② | Gateway | Lookup credentials | Server ID → Host, API Key, API Secret (decrypted) |
+| ③ | Gateway → Media Server | Validate room exists | Room name → Room SID (cached 60s) |
+| ④ | Gateway | Generate token | Remote credentials → JWT with RoomJoin grant |
+| ⑤ | Gateway | Start worker | Token + URL → Egress worker process |
+| ⑥ | Worker → Media Server | Join room | WebSocket connection with JWT auth |
+| ⑦ | Worker → Storage | Save output | Media stream → MP4/HLS/RTMP |
+
 ## Quick Start
 
 The Egress Gateway allows you to run LiveKit egress services independently from your main media servers, enabling centralized recording/streaming across multiple LiveKit deployments.
