@@ -35,6 +35,10 @@ import (
 	"github.com/livekit/livekit-server/pkg/rtc"
 )
 
+const (
+	MediaServerIDHeader = "media-server-id"
+)
+
 type EgressService struct {
 	launcher         rtc.EgressLauncher
 	client           rpc.EgressClient
@@ -43,6 +47,18 @@ type EgressService struct {
 	gatewayMode      bool
 	serverRegistry   ServerRegistry
 	remoteValidator  RemoteValidator
+}
+
+// getMediaServerID extracts media_server_id from request context metadata
+func getMediaServerID(ctx context.Context) string {
+	// Try to get from Twirp headers
+	header, ok := twirp.HTTPRequestHeaders(ctx)
+	if ok {
+		if serverID := header.Get(MediaServerIDHeader); serverID != "" {
+			return serverID
+		}
+	}
+	return ""
 }
 
 type egressLauncher struct {
@@ -92,9 +108,9 @@ func (s *EgressService) StartRoomCompositeEgress(ctx context.Context, req *livek
 		AppendLogFields(ctx, fields...)
 	}()
 	
-	// Check if gateway mode with media_server_id
-	if s.gatewayMode && req.Attributes != nil {
-		if mediaServerID, ok := req.Attributes["media_server_id"]; ok && mediaServerID != "" {
+	// Check if gateway mode with media_server_id from context metadata
+	if s.gatewayMode {
+		if mediaServerID := getMediaServerID(ctx); mediaServerID != "" {
 			fields = append(fields, "mediaServerID", mediaServerID)
 			egressReq := &rpc.StartEgressRequest{
 				Request: &rpc.StartEgressRequest_RoomComposite{
@@ -153,9 +169,9 @@ func (s *EgressService) StartParticipantEgress(ctx context.Context, req *livekit
 		AppendLogFields(ctx, fields...)
 	}()
 	
-	// Check if gateway mode with media_server_id
-	if s.gatewayMode && req.Attributes != nil {
-		if mediaServerID, ok := req.Attributes["media_server_id"]; ok && mediaServerID != "" {
+	// Check if gateway mode with media_server_id from context metadata
+	if s.gatewayMode {
+		if mediaServerID := getMediaServerID(ctx); mediaServerID != "" {
 			fields = append(fields, "mediaServerID", mediaServerID)
 			egressReq := &rpc.StartEgressRequest{
 				Request: &rpc.StartEgressRequest_Participant{
@@ -195,9 +211,9 @@ func (s *EgressService) StartTrackCompositeEgress(ctx context.Context, req *live
 		AppendLogFields(ctx, fields...)
 	}()
 	
-	// Check if gateway mode with media_server_id
-	if s.gatewayMode && req.Attributes != nil {
-		if mediaServerID, ok := req.Attributes["media_server_id"]; ok && mediaServerID != "" {
+	// Check if gateway mode with media_server_id from context metadata
+	if s.gatewayMode {
+		if mediaServerID := getMediaServerID(ctx); mediaServerID != "" {
 			fields = append(fields, "mediaServerID", mediaServerID)
 			egressReq := &rpc.StartEgressRequest{
 				Request: &rpc.StartEgressRequest_TrackComposite{
@@ -235,9 +251,9 @@ func (s *EgressService) StartTrackEgress(ctx context.Context, req *livekit.Track
 		AppendLogFields(ctx, fields...)
 	}()
 	
-	// Check if gateway mode with media_server_id
-	if s.gatewayMode && req.Attributes != nil {
-		if mediaServerID, ok := req.Attributes["media_server_id"]; ok && mediaServerID != "" {
+	// Check if gateway mode with media_server_id from context metadata
+	if s.gatewayMode {
+		if mediaServerID := getMediaServerID(ctx); mediaServerID != "" {
 			fields = append(fields, "mediaServerID", mediaServerID)
 			egressReq := &rpc.StartEgressRequest{
 				Request: &rpc.StartEgressRequest_Track{
@@ -298,7 +314,7 @@ func (s *EgressService) startGatewayEgress(ctx context.Context, egressReq *rpc.S
 	}
 
 	// Set room SID from remote server
-	egressReq.RoomId = roomInfo.GetRoomSID()
+	egressReq.RoomId = roomInfo.RoomSID
 
 	// Generate egress ID
 	if egressReq.EgressId == "" {
@@ -306,7 +322,7 @@ func (s *EgressService) startGatewayEgress(ctx context.Context, egressReq *rpc.S
 	}
 
 	// Generate token using remote server credentials for egress worker to connect to remote server
-	token := auth.NewAccessToken(serverInfo.GetAPIKey(), serverInfo.GetAPISecret())
+	token := auth.NewAccessToken(serverInfo.APIKey, serverInfo.APISecret)
 	token.SetIdentity(egressReq.EgressId).
 		AddGrant(&auth.VideoGrant{
 			RoomJoin: true,
@@ -322,7 +338,7 @@ func (s *EgressService) startGatewayEgress(ctx context.Context, egressReq *rpc.S
 	
 	// Set the token in the egress request so worker can connect to remote server
 	egressReq.Token = jwt
-	egressReq.WsUrl = serverInfo.GetHost()
+	egressReq.WsUrl = serverInfo.Host
 
 	// Start egress
 	info, err := s.client.StartEgress(ctx, "", egressReq)

@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/livekit/protocol/livekit"
+	
+	"github.com/livekit/livekit-server/pkg/gateway"
 )
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
@@ -116,23 +118,11 @@ type AgentStore interface {
 
 //counterfeiter:generate . ServerRegistry
 type ServerRegistry interface {
-	GetServer(ctx context.Context, serverID string) (ServerInfo, error)
+	GetServer(ctx context.Context, serverID string) (*gateway.RemoteServerInfo, error)
 	ListServers(ctx context.Context) ([]string, error)
 }
 
 //counterfeiter:generate . RemoteValidator
 type RemoteValidator interface {
-	ValidateRoom(ctx context.Context, serverID, roomName string) (RoomInfo, error)
-}
-
-type ServerInfo interface {
-	GetServerID() string
-	GetHost() string
-	GetAPIKey() string
-	GetAPISecret() string
-}
-
-type RoomInfo interface {
-	GetRoomSID() string
-	GetRoomName() string
+	ValidateRoom(ctx context.Context, serverID, roomName string) (*gateway.RemoteRoomInfo, error)
 }

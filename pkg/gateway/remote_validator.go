@@ -101,23 +101,23 @@ func (v *RemoteValidator) ValidateRoom(ctx context.Context, serverID, roomName s
 
 func (v *RemoteValidator) validateRemote(ctx context.Context, server *RemoteServerInfo, roomName string) (*RemoteRoomInfo, error) {
 	// Create LiveKit client for remote server
-	roomClient := lksdk.NewRoomServiceClient(server.Host, server.APIKey, server.APISecret, lksdk.WithHTTPClient(v.httpClient))
+	roomClient := lksdk.NewRoomServiceClient(server.Host, server.APIKey, server.APISecret)
 
 	// List rooms to check if it exists
-	rooms, err := roomClient.ListRooms(ctx, &livekit.ListRoomsRequest{
+	res, err := roomClient.ListRooms(ctx, &livekit.ListRoomsRequest{
 		Names: []string{roomName},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate room on remote server: %w", err)
 	}
 
-	if len(rooms) == 0 {
+	if len(res.Rooms) == 0 {
 		return nil, fmt.Errorf("room not found on remote server: %s", roomName)
 	}
 
 	return &RemoteRoomInfo{
-		RoomSID:  rooms[0].Sid,
-		RoomName: rooms[0].Name,
+		RoomSID:  res.Rooms[0].Sid,
+		RoomName: res.Rooms[0].Name,
 	}, nil
 }
 
